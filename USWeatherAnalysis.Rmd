@@ -1,0 +1,161 @@
+---
+title: "Analysis of the Impact of Weather Events in the United States"
+author: "Joe Logan"
+date: "April 21, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+More information regarding the data in this study can be
+found here...
+https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf
+
+The events in the database start in the year 1950 and end in November 2011. In the earlier years of the database there are generally fewer events recorded, most likely due to a lack of good records. More recent years should be considered more complete.
+
+This study addresses the following questions:  
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?  
+2. Across the United States, which types of events have the greatest economic consequences?
+
+***** 
+
+## Data Processing
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. The data that was used was obtained via the following link...
+https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2
+
+### First step is to load file and remove unnecessary data
+We do not need the all of the data for our study.
+We need the following. 
+ 
+* EVTYPE is needed to aggregate the information based on the type of event 
+* FATALITIES and INJURIES, will be our measure of direct health impact 
+* PROPDMG, PROPDMGEXP, CROPDMG and CROPDMGEXP will be our measure of economic impact 
+
+```{r cache=TRUE, results="hide", message=FALSE}
+# Set this up so that a user can run this on their local machine from scratch
+
+dataURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+# Give the file a friendly name
+dataLocalFile <- "Data/USWeatherData.csv.bz2"
+
+# Download the file if the local data file doesn't exist
+if (!file.exists(dataLocalFile)) {
+    download.file(url = dataURL,
+                  destfile = dataLocalFile)
+}
+
+# Read the file into memory
+myData <- read.csv(dataLocalFile, header=TRUE, sep=",")
+
+# Which columns are needed? Review them all here.
+names(myData)
+
+## EVTYPE is needed to aggregate the information based on the type of event
+## FATALITIES and INJURIES, will be our measure of direct health impact
+## PROPDMG, PROPDMGEXP, CROPDMG and CROPDMGEXP will be our measure of economic impact
+mySubData <- myData[ , c('EVTYPE', 'FATALITIES', 'INJURIES', 'PROPDMG', 'PROPDMGEXP', 'CROPDMG', 'CROPDMGEXP')]
+
+# Ensure subset successful
+names(mySubData)
+
+# Remove the original from memory.  We no longer need it
+rm(myData)
+```
+  
+********  
+ 
+### Now lets setup the data for processing
+The property and crop loss information is using a multiplier (PROPDMGEXP and CROPDMGEXP)
+so we can set the data up by putting in the actual values.
+```{r cache=FALSE, results="hide", message=FALSE}
+vH <- 10^2
+vK <- 10^3
+vM <- 10^6
+vB <- 10^9
+mySubData$PROPERTYDAMAGE <- 0 # Initializing new column
+mySubData$CROPDAMAGE <- 0 # Initializing new column
+
+# Compute the property damage and place in new field
+mySubData[mySubData$PROPDMGEXP == "H", ]$PROPERTYDAMAGE <- mySubData[mySubData$PROPDMGEXP == "H", ]$PROPDMG * vH
+mySubData[mySubData$PROPDMGEXP == "K", ]$PROPERTYDAMAGE <- mySubData[mySubData$PROPDMGEXP == "K", ]$PROPDMG * vK
+mySubData[mySubData$PROPDMGEXP == "M", ]$PROPERTYDAMAGE <- mySubData[mySubData$PROPDMGEXP == "M", ]$PROPDMG * vM
+mySubData[mySubData$PROPDMGEXP == "B", ]$PROPERTYDAMAGE <- mySubData[mySubData$PROPDMGEXP == "B", ]$PROPDMG * vB
+
+# Compute the crop damage and place in the new field
+mySubData[mySubData$CROPDMGEXP == "H", ]$CROPDAMAGE <- mySubData[mySubData$CROPDMGEXP == "H", ]$CROPDMG * vH
+mySubData[mySubData$CROPDMGEXP == "K", ]$CROPDAMAGE <- mySubData[mySubData$CROPDMGEXP == "K", ]$CROPDMG * vK
+mySubData[mySubData$CROPDMGEXP == "M", ]$CROPDAMAGE <- mySubData[mySubData$CROPDMGEXP == "M", ]$CROPDMG * vM
+mySubData[mySubData$CROPDMGEXP == "B", ]$CROPDAMAGE <- mySubData[mySubData$CROPDMGEXP == "B", ]$CROPDMG * vB
+
+summary(mySubData)
+```
+  
+********  
+ 
+## Results
+### Let's look at the weather events that had the greatest financial impact in the US
+```{r cache=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+chartData <- aggregate((PROPERTYDAMAGE + CROPDAMAGE) / 1000000000 ~ EVTYPE, data = mySubData, sum)
+#chartData <- aggregate((round(PROPERTYDAMAGE + CROPDAMAGE) / 1000000000, digits = 2) ~ EVTYPE, data = mySubData, sum)
+names(chartData) <- c("EVTYPE", "TDAMAGE")
+chartData <- chartData[order(-chartData$TDAMAGE), ][1:15, ]
+chartData$EVTYPE <- factor(chartData$EVTYPE, levels = chartData$EVTYPE)
+
+ggplot(chartData, aes(x = EVTYPE, y = TDAMAGE)) + 
+        geom_bar(stat = "identity", fill = "blue") + 
+        xlab("Event") + ylab("Damages in US Billions $") +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0)) + 
+        geom_text(aes(label=(round(chartData$TDAMAGE, digits = 2))), size = 3, colour = "white", position = position_stack(vjust = 0.5)) + 
+        ggtitle("Total property and crop damages for worst weather events")
+```
+  
+********  
+ 
+### Let's look now at the public health data starting with fatalities
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)
+chartData <- aggregate(FATALITIES ~ EVTYPE, data = mySubData, sum)
+
+# Need to only grab the top 15 so the data is readable.
+chartData <- chartData[order(-chartData$FATALITIES), ][1:15, ]
+chartData$EVTYPE <- factor(chartData$EVTYPE, levels = chartData$EVTYPE)
+
+ggplot(chartData, aes(x = EVTYPE, y = FATALITIES)) + 
+        geom_bar(stat = "identity", fill = "blue") +
+        xlab("Event") + ylab("Fatality Count") +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0)) +
+        geom_text(aes(label=chartData$FATALITIES), size = 3, colour = "white", position = position_stack(vjust = 0.5)) + 
+        ggtitle("Weather Events Associated with Greatest Loss of LIfe")
+```
+
+  
+********  
+  
+### Now let's look at the number of injuries
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+library(ggplot2)
+chartData <- aggregate(INJURIES ~ EVTYPE, data = mySubData, sum)
+
+# Need to only grab the top 15 so the data is readable.
+chartData <- chartData[order(-chartData$INJURIES), ][1:15, ]
+chartData$EVTYPE <- factor(chartData$EVTYPE, levels = chartData$EVTYPE)
+
+ggplot(chartData, aes(x = EVTYPE, y = INJURIES)) + 
+        geom_bar(stat = "identity", fill = "blue") +
+        xlab("Event") + ylab("Injury Count") +
+        theme(axis.text.x = element_text(angle = 90, hjust = 0)) +
+        geom_text(aes(label=chartData$INJURIES), size = 3, colour = "white", position = position_stack(vjust = 0.5)) + 
+        ggtitle("Weather Events Associated with the Most Injuries")
+```
+
+
+
